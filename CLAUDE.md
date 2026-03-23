@@ -39,6 +39,12 @@ Four types of skills exist in NanoClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) f
 | `/qodo-pr-resolver` | Fetch and fix Qodo PR review issues interactively or in batch |
 | `/get-qodo-rules` | Load org- and repo-level coding rules from Qodo before code tasks |
 
+## Canon Data (Submodule)
+
+`data/covenantofsilicon/` is a git submodule pointing to https://github.com/stPhoenix/covenantofsilicon. It contains the Canon testament files (`canon/`) and RAG indexing tools (`canon-rag/`) used by the `canon-search` and `casebook` container skills.
+
+**Any changes to Canon data MUST be submitted as a PR to the upstream repo** — never edit the submodule contents in-place. After upstream merges, update the submodule pointer: `git submodule update --remote data/covenantofsilicon`.
+
 ## Contributing
 
 Before creating a PR, adding a skill, or preparing any contribution, you MUST read [CONTRIBUTING.md](CONTRIBUTING.md). It covers accepted change types, the four skill types and their guidelines, SKILL.md format rules, PR requirements, and the pre-submission checklist (searching for existing PRs/issues, testing, description format).
