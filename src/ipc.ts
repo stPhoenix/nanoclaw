@@ -5,15 +5,17 @@ import { CronExpressionParser } from 'cron-parser';
 
 import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
 import { AvailableGroup } from './container-runner.js';
-import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
+import { createTask, deleteTask, getTaskById, updateTask, upsertRegisteredCommand } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
-import { RegisteredGroup } from './types.js';
+import { BlockMessage, RegisteredCommand, RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
+  sendBlockMessage?: (jid: string, message: BlockMessage) => Promise<string | undefined>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
+  registerDynamicCommand?: (cmd: RegisteredCommand) => void;
   syncGroups: (force: boolean) => Promise<void>;
   getAvailableGroups: () => AvailableGroup[];
   writeGroupsSnapshot: (
@@ -74,14 +76,24 @@ export function startIpcWatcher(deps: IpcDeps): void {
             const filePath = path.join(messagesDir, file);
             try {
               const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-              if (data.type === 'message' && data.chatJid && data.text) {
+              if (data.type === 'message' && data.chatJid && (data.text || data.blocks)) {
                 // Authorization: verify this group can send to this chatJid
                 const targetGroup = registeredGroups[data.chatJid];
                 if (
                   isMain ||
                   (targetGroup && targetGroup.folder === sourceGroup)
                 ) {
-                  await deps.sendMessage(data.chatJid, data.text);
+                  // Check for block messages (status updates)
+                  if (data.blocks && deps.sendBlockMessage) {
+                    logger.info({ chatJid: data.chatJid, hasBlocks: true }, 'Sending block message');
+                    const ts = await deps.sendBlockMessage(data.chatJid, data.blocks);
+                    // Store timestamp for potential updates
+                    if (ts) {
+                      logger.info({ chatJid: data.chatJid, ts }, 'Block message posted');
+                    }
+                  } else if (data.text) {
+                    await deps.sendMessage(data.chatJid, data.text);
+                  }
                   logger.info(
                     { chatJid: data.chatJid, sourceGroup },
                     'IPC message sent',
@@ -172,6 +184,15 @@ export async function processTaskIpc(
     trigger?: string;
     requiresTrigger?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
+    // For register_commands
+    group_jid?: string;
+    group_folder?: string;
+    commands?: Array<{
+      name: string;
+      description: string;
+      scope: 'global' | 'channel';
+      usage_hint?: string;
+    }>;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -451,6 +472,29 @@ export async function processTaskIpc(
         logger.warn(
           { data },
           'Invalid register_group request - missing required fields',
+        );
+      }
+      break;
+
+    case 'register_commands':
+      if (data.group_jid && data.commands) {
+        for (const cmd of data.commands) {
+          const registeredCmd: RegisteredCommand = {
+            name: cmd.name,
+            group_jid: data.group_jid,
+            description: cmd.description,
+            scope: cmd.scope,
+            usage_hint: cmd.usage_hint,
+            registered_at: new Date().toISOString(),
+          };
+          upsertRegisteredCommand(registeredCmd);
+          if (deps.registerDynamicCommand) {
+            deps.registerDynamicCommand(registeredCmd);
+          }
+        }
+        logger.info(
+          { count: data.commands.length, group: data.group_jid },
+          'Registered commands from agent',
         );
       }
       break;

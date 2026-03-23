@@ -79,6 +79,25 @@ export interface TaskRunLog {
 
 // --- Channel abstraction ---
 
+export interface SlackBlock {
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface BlockMessage {
+  text: string; // Fallback text for notifications
+  blocks: SlackBlock[];
+}
+
+export interface RegisteredCommand {
+  name: string;
+  group_jid: string;
+  description: string;
+  scope: 'global' | 'channel';
+  usage_hint?: string;
+  registered_at: string;
+}
+
 export interface Channel {
   name: string;
   connect(): Promise<void>;
@@ -90,6 +109,12 @@ export interface Channel {
   setTyping?(jid: string, isTyping: boolean): Promise<void>;
   // Optional: sync group/chat names from the platform.
   syncGroups?(force: boolean): Promise<void>;
+  // Optional: send a Block Kit message (Slack-specific). Returns message timestamp for updates.
+  sendBlockMessage?(jid: string, message: BlockMessage): Promise<string | undefined>;
+  // Optional: update a previously sent message by timestamp.
+  updateMessage?(jid: string, ts: string, text: string, blocks?: SlackBlock[]): Promise<void>;
+  // Optional: register a dynamic slash command.
+  registerDynamicCommand?(cmd: RegisteredCommand, onMessage: OnInboundMessage): void;
 }
 
 // Callback type that channels use to deliver inbound messages

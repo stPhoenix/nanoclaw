@@ -7,7 +7,7 @@ import {
   IDLE_TIMEOUT,
   POLL_INTERVAL,
   TIMEZONE,
-  TRIGGER_PATTERN,
+  escapeRegex,
 } from './config.js';
 import { startCredentialProxy } from './credential-proxy.js';
 import './channels/index.js';
@@ -33,6 +33,7 @@ import {
   getAllTasks,
   getMessagesSince,
   getNewMessages,
+  getRegisteredCommands,
   getRouterState,
   initDatabase,
   setRegisteredGroup,
@@ -40,6 +41,7 @@ import {
   setSession,
   storeChatMetadata,
   storeMessage,
+  upsertRegisteredCommand,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -57,7 +59,7 @@ import {
   shouldDropMessage,
 } from './sender-allowlist.js';
 import { startSchedulerLoop } from './task-scheduler.js';
-import { Channel, NewMessage, RegisteredGroup } from './types.js';
+import { BlockMessage, Channel, NewMessage, RegisteredCommand, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 
 // Re-export for backwards compatibility during refactor
@@ -171,9 +173,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
     const allowlistCfg = loadSenderAllowlist();
+    const triggerRegex = new RegExp(`^${escapeRegex(group.trigger)}\\b`, 'i');
     const hasTrigger = missedMessages.some(
       (m) =>
-        TRIGGER_PATTERN.test(m.content.trim()) &&
+        triggerRegex.test(m.content.trim()) &&
         (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
     );
     if (!hasTrigger) return true;
@@ -211,6 +214,22 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
+  // Post a "Processing..." status message if channel supports Block Kit
+  let statusMessageTs: string | undefined;
+  if (channel.sendBlockMessage) {
+    statusMessageTs = await channel.sendBlockMessage(chatJid, {
+      text: '⏳ Processing...',
+      blocks: [
+        {
+          type: 'context',
+          elements: [
+            { type: 'mrkdwn', text: '⏳ *Processing...*' },
+          ],
+        },
+      ],
+    });
+  }
+
   const output = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
     if (result.result) {
@@ -222,7 +241,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
       logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
       if (text) {
-        await channel.sendMessage(chatJid, text);
+        // Delete the status message now that we have real output
+        if (statusMessageTs && channel.updateMessage) {
+          await channel.updateMessage(chatJid, statusMessageTs, text);
+          statusMessageTs = undefined; // Only update once, then send normally
+        } else {
+          await channel.sendMessage(chatJid, text);
+        }
         outputSentToUser = true;
       }
       // Only reset idle timer on actual results, not session-update markers (result: null)
@@ -398,10 +423,11 @@ async function startMessageLoop(): Promise<void> {
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
           if (needsTrigger) {
+            const triggerRegex = new RegExp(`^${escapeRegex(group.trigger)}\\b`, 'i');
             const allowlistCfg = loadSenderAllowlist();
             const hasTrigger = groupMessages.some(
               (m) =>
-                TRIGGER_PATTERN.test(m.content.trim()) &&
+                triggerRegex.test(m.content.trim()) &&
                 (m.is_from_me ||
                   isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
             );
@@ -596,13 +622,26 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Load and register saved slash commands
+  const savedCommands = getRegisteredCommands();
+  for (const cmd of savedCommands) {
+    for (const ch of channels) {
+      if (ch.ownsJid(cmd.group_jid) && ch.registerDynamicCommand) {
+        ch.registerDynamicCommand(cmd, channelOpts.onMessage);
+      }
+    }
+  }
+  if (savedCommands.length > 0) {
+    logger.info({ count: savedCommands.length }, 'Loaded registered commands');
+  }
+
   // Start subsystems (independently of connection handler)
   startSchedulerLoop({
     registeredGroups: () => registeredGroups,
     getSessions: () => sessions,
     queue,
     onProcess: (groupJid, proc, containerName, groupFolder) =>
-      queue.registerProcess(groupJid, proc, containerName, groupFolder),
+      queue.registerProcess(groupJid, proc, containerName, groupFolder, true),
     sendMessage: async (jid, rawText) => {
       const channel = findChannel(channels, jid);
       if (!channel) {
@@ -619,8 +658,26 @@ async function main(): Promise<void> {
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       return channel.sendMessage(jid, text);
     },
+    sendBlockMessage: async (jid: string, message: BlockMessage): Promise<string | undefined> => {
+      const channel = findChannel(channels, jid);
+      if (!channel) throw new Error(`No channel for JID: ${jid}`);
+      if (channel.sendBlockMessage) {
+        return await channel.sendBlockMessage(jid, message);
+      } else {
+        // Fallback to plain text for channels without block support
+        await channel.sendMessage(jid, message.text);
+        return undefined;
+      }
+    },
     registeredGroups: () => registeredGroups,
     registerGroup,
+    registerDynamicCommand: (cmd: RegisteredCommand) => {
+      for (const ch of channels) {
+        if (ch.ownsJid(cmd.group_jid) && ch.registerDynamicCommand) {
+          ch.registerDynamicCommand(cmd, channelOpts.onMessage);
+        }
+      }
+    },
     syncGroups: async (force: boolean) => {
       await Promise.all(
         channels

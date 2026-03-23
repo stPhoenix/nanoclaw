@@ -1,11 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import http from 'http';
+import fs from 'fs';
 import type { AddressInfo } from 'net';
 
 const mockEnv: Record<string, string> = {};
 vi.mock('./env.js', () => ({
   readEnvFile: vi.fn(() => ({ ...mockEnv })),
 }));
+
+// Prevent readCredentials() from reading the real ~/.claude/.credentials.json
+const originalExistsSync = fs.existsSync;
+vi.spyOn(fs, 'existsSync').mockImplementation((p) => {
+  if (typeof p === 'string' && p.includes('.credentials.json')) return false;
+  return originalExistsSync(p);
+});
 
 vi.mock('./logger.js', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },

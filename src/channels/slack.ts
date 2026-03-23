@@ -7,10 +7,13 @@ import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
+  BlockMessage,
   Channel,
   OnInboundMessage,
   OnChatMetadata,
+  RegisteredCommand,
   RegisteredGroup,
+  SlackBlock,
 } from '../types.js';
 
 // Slack's chat.postMessage API limits text to ~4000 characters per call.
@@ -94,8 +97,7 @@ export class SlackChannel implements Channel {
       const groups = this.opts.registeredGroups();
       if (!groups[jid]) return;
 
-      const isBotMessage =
-        !!msg.bot_id || msg.user === this.botUserId;
+      const isBotMessage = !!msg.bot_id || msg.user === this.botUserId;
 
       let senderName: string;
       if (isBotMessage) {
@@ -113,7 +115,10 @@ export class SlackChannel implements Channel {
       let content = msg.text;
       if (this.botUserId && !isBotMessage) {
         const mentionPattern = `<@${this.botUserId}>`;
-        if (content.includes(mentionPattern) && !TRIGGER_PATTERN.test(content)) {
+        if (
+          content.includes(mentionPattern) &&
+          !TRIGGER_PATTERN.test(content)
+        ) {
           content = `@${ASSISTANT_NAME} ${content}`;
         }
       }
@@ -142,10 +147,7 @@ export class SlackChannel implements Channel {
       this.botUserId = auth.user_id as string;
       logger.info({ botUserId: this.botUserId }, 'Connected to Slack');
     } catch (err) {
-      logger.warn(
-        { err },
-        'Connected to Slack but failed to get bot user ID',
-      );
+      logger.warn({ err }, 'Connected to Slack but failed to get bot user ID');
     }
 
     this.connected = true;
@@ -188,6 +190,59 @@ export class SlackChannel implements Channel {
         { jid, err, queueSize: this.outgoingQueue.length },
         'Failed to send Slack message, queued',
       );
+    }
+  }
+
+  async sendBlockMessage(jid: string, message: BlockMessage): Promise<string | undefined> {
+    const channelId = jid.replace(/^slack:/, '');
+    try {
+      const result = await this.app.client.chat.postMessage({
+        channel: channelId,
+        text: message.text,
+        blocks: message.blocks as any[],
+      });
+      return result.ts;
+    } catch (err) {
+      logger.warn({ jid, err }, 'Failed to send block message');
+      return undefined;
+    }
+  }
+
+  async updateMessage(jid: string, ts: string, text: string, blocks?: SlackBlock[]): Promise<void> {
+    const channelId = jid.replace(/^slack:/, '');
+    try {
+      await this.app.client.chat.update({
+        channel: channelId,
+        ts,
+        text,
+        ...(blocks ? { blocks: blocks as any[] } : {}),
+      });
+    } catch (err) {
+      logger.warn({ jid, ts, err }, 'Failed to update message');
+    }
+  }
+
+  registerDynamicCommand(cmd: RegisteredCommand, onMessage: OnInboundMessage): void {
+    const commandName = `/${cmd.name}`;
+    try {
+      this.app.command(commandName, async ({ command, ack }) => {
+        await ack();
+        const jid = `slack:${command.channel_id}`;
+        const targetJid = cmd.scope === 'global' ? cmd.group_jid : jid;
+        onMessage(targetJid, {
+          id: command.trigger_id,
+          chat_jid: targetJid,
+          sender: command.user_id,
+          sender_name: command.user_name,
+          content: `[SLASH COMMAND: ${commandName}] ${command.text || ''}`.trim(),
+          timestamp: Date.now().toString(),
+          is_from_me: false,
+          is_bot_message: false,
+        });
+      });
+      logger.info({ command: commandName, scope: cmd.scope, group: cmd.group_jid }, 'Registered slash command');
+    } catch (err) {
+      logger.warn({ command: commandName, err }, 'Failed to register slash command');
     }
   }
 
@@ -245,9 +300,7 @@ export class SlackChannel implements Channel {
     }
   }
 
-  private async resolveUserName(
-    userId: string,
-  ): Promise<string | undefined> {
+  private async resolveUserName(userId: string): Promise<string | undefined> {
     if (!userId) return undefined;
 
     const cached = this.userNameCache.get(userId);

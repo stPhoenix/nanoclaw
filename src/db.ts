@@ -7,6 +7,7 @@ import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import {
   NewMessage,
+  RegisteredCommand,
   RegisteredGroup,
   ScheduledTask,
   TaskRunLog,
@@ -139,6 +140,20 @@ function createSchema(database: Database.Database): void {
   } catch {
     /* columns already exist */
   }
+
+  // Add registered_commands table (migration for existing DBs)
+  try {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS registered_commands (
+        name TEXT PRIMARY KEY,
+        group_jid TEXT NOT NULL,
+        description TEXT,
+        scope TEXT DEFAULT 'channel',
+        usage_hint TEXT,
+        registered_at TEXT
+      )
+    `);
+  } catch { /* table already exists */ }
 }
 
 export function initDatabase(): void {
@@ -481,19 +496,34 @@ export function updateTaskAfterRun(
 }
 
 export function logTaskRun(log: TaskRunLog): void {
-  db.prepare(
-    `
-    INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, result, error)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `,
-  ).run(
-    log.task_id,
-    log.run_at,
-    log.duration_ms,
-    log.status,
-    log.result,
-    log.error,
-  );
+  try {
+    db.prepare(
+      `
+      INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, result, error)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `,
+    ).run(
+      log.task_id,
+      log.run_at,
+      log.duration_ms,
+      log.status,
+      log.result,
+      log.error,
+    );
+  } catch (err: unknown) {
+    if (
+      err instanceof Error &&
+      'code' in err &&
+      (err as { code: string }).code === 'SQLITE_CONSTRAINT_FOREIGNKEY'
+    ) {
+      logger.warn(
+        { taskId: log.task_id },
+        'Task deleted during execution, skipping run log',
+      );
+    } else {
+      throw err;
+    }
+  }
 }
 
 // --- Router state accessors ---
@@ -632,6 +662,19 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
     };
   }
   return result;
+}
+
+// --- Registered command accessors ---
+
+export function getRegisteredCommands(): RegisteredCommand[] {
+  return db.prepare('SELECT * FROM registered_commands').all() as RegisteredCommand[];
+}
+
+export function upsertRegisteredCommand(cmd: RegisteredCommand): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO registered_commands (name, group_jid, description, scope, usage_hint, registered_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(cmd.name, cmd.group_jid, cmd.description, cmd.scope, cmd.usage_hint || null, cmd.registered_at);
 }
 
 // --- JSON migration ---

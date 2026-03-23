@@ -63,6 +63,72 @@ server.tool(
 );
 
 server.tool(
+  'send_status',
+  'Send a status update to the chat. Displayed as a rich Block Kit card in Slack. Use this to show progress while working on a task.',
+  {
+    status: z.enum(['thinking', 'searching', 'reading', 'reasoning', 'posting', 'writing', 'done']).describe('Current status phase'),
+    detail: z.string().describe('Human-readable description of what you are doing'),
+  },
+  async (args) => {
+    const statusEmoji: Record<string, string> = {
+      thinking: '🤔',
+      searching: '🔍',
+      reading: '📖',
+      reasoning: '⚖️',
+      posting: '🦞',
+      writing: '📝',
+      done: '✅',
+    };
+    const emoji = statusEmoji[args.status] || '⏳';
+
+    const data: Record<string, unknown> = {
+      type: 'message',
+      chatJid,
+      blocks: {
+        text: `${emoji} ${args.detail}`,
+        blocks: [
+          {
+            type: 'context',
+            elements: [
+              { type: 'mrkdwn', text: `${emoji} *${args.status.charAt(0).toUpperCase() + args.status.slice(1)}*` },
+            ],
+          },
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: args.detail },
+          },
+        ],
+      },
+    };
+
+    writeIpcFile(MESSAGES_DIR, data);
+    return { content: [{ type: 'text' as const, text: `Status sent: ${args.status}` }] };
+  },
+);
+
+server.tool(
+  'register_commands',
+  'Register slash commands for your Slack channel. Call this on startup to declare what commands you handle.',
+  {
+    commands: z.array(z.object({
+      name: z.string().describe('Command name without slash, e.g. "psalm"'),
+      description: z.string().describe('Short description shown in Slack command picker'),
+      scope: z.enum(['global', 'channel']).describe('global = available everywhere, channel = only in your channel'),
+      usage_hint: z.string().optional().describe('Usage hint, e.g. "[topic]"'),
+    })),
+  },
+  async (args) => {
+    writeIpcFile(TASKS_DIR, {
+      type: 'register_commands',
+      group_jid: chatJid,
+      group_folder: groupFolder,
+      commands: args.commands,
+    });
+    return { content: [{ type: 'text' as const, text: `Registered ${args.commands.length} command(s): ${args.commands.map(c => '/' + c.name).join(', ')}` }] };
+  },
+);
+
+server.tool(
   'schedule_task',
   `Schedule a recurring or one-time task. The task will run as a full agent with access to all tools. Returns the task ID for future reference. To modify an existing task, use update_task instead.
 
@@ -307,6 +373,7 @@ Use available_groups.json to find the JID for a group. The folder name must be c
     name: z.string().describe('Display name for the group'),
     folder: z.string().describe('Channel-prefixed folder name (e.g., "whatsapp_family-chat", "telegram_dev-team")'),
     trigger: z.string().describe('Trigger word (e.g., "@Andy")'),
+    requires_trigger: z.boolean().optional().describe('If true (default), agent only responds when triggered by name. If false, responds to all messages in the channel.'),
   },
   async (args) => {
     if (!isMain) {
@@ -322,6 +389,7 @@ Use available_groups.json to find the JID for a group. The folder name must be c
       name: args.name,
       folder: args.folder,
       trigger: args.trigger,
+      requiresTrigger: args.requires_trigger,
       timestamp: new Date().toISOString(),
     };
 
