@@ -153,7 +153,9 @@ function createSchema(database: Database.Database): void {
         registered_at TEXT
       )
     `);
-  } catch { /* table already exists */ }
+  } catch {
+    /* table already exists */
+  }
 }
 
 export function initDatabase(): void {
@@ -667,14 +669,23 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
 // --- Registered command accessors ---
 
 export function getRegisteredCommands(): RegisteredCommand[] {
-  return db.prepare('SELECT * FROM registered_commands').all() as RegisteredCommand[];
+  return db
+    .prepare('SELECT * FROM registered_commands')
+    .all() as RegisteredCommand[];
 }
 
 export function upsertRegisteredCommand(cmd: RegisteredCommand): void {
   db.prepare(
     `INSERT OR REPLACE INTO registered_commands (name, group_jid, description, scope, usage_hint, registered_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(cmd.name, cmd.group_jid, cmd.description, cmd.scope, cmd.usage_hint || null, cmd.registered_at);
+  ).run(
+    cmd.name,
+    cmd.group_jid,
+    cmd.description,
+    cmd.scope,
+    cmd.usage_hint || null,
+    cmd.registered_at,
+  );
 }
 
 // --- JSON migration ---

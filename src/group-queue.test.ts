@@ -321,10 +321,17 @@ describe('GroupQueue', () => {
     // Start both message and task containers
     queue.enqueueMessageCheck('group1@g.us');
     await vi.advanceTimersByTimeAsync(10);
-    queue.registerProcess('group1@g.us', {} as any, 'msg-container', 'test-group');
+    queue.registerProcess(
+      'group1@g.us',
+      {} as any,
+      'msg-container',
+      'test-group',
+    );
 
     const taskFn = vi.fn(async () => {
-      await new Promise<void>((resolve) => { resolveTask = resolve; });
+      await new Promise<void>((resolve) => {
+        resolveTask = resolve;
+      });
     });
     queue.enqueueTask('group1@g.us', 'task-1', taskFn);
     await vi.advanceTimersByTimeAsync(10);
@@ -351,7 +358,9 @@ describe('GroupQueue', () => {
 
     // Start a long-running task
     const taskFn = vi.fn(async () => {
-      await new Promise<void>((resolve) => { resolveTask = resolve; });
+      await new Promise<void>((resolve) => {
+        resolveTask = resolve;
+      });
     });
     queue.enqueueTask('group1@g.us', 'task-1', taskFn);
     await vi.advanceTimersByTimeAsync(10);

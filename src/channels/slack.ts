@@ -193,7 +193,10 @@ export class SlackChannel implements Channel {
     }
   }
 
-  async sendBlockMessage(jid: string, message: BlockMessage): Promise<string | undefined> {
+  async sendBlockMessage(
+    jid: string,
+    message: BlockMessage,
+  ): Promise<string | undefined> {
     const channelId = jid.replace(/^slack:/, '');
     try {
       const result = await this.app.client.chat.postMessage({
@@ -208,7 +211,12 @@ export class SlackChannel implements Channel {
     }
   }
 
-  async updateMessage(jid: string, ts: string, text: string, blocks?: SlackBlock[]): Promise<void> {
+  async updateMessage(
+    jid: string,
+    ts: string,
+    text: string,
+    blocks?: SlackBlock[],
+  ): Promise<void> {
     const channelId = jid.replace(/^slack:/, '');
     try {
       await this.app.client.chat.update({
@@ -222,7 +230,10 @@ export class SlackChannel implements Channel {
     }
   }
 
-  registerDynamicCommand(cmd: RegisteredCommand, onMessage: OnInboundMessage): void {
+  registerDynamicCommand(
+    cmd: RegisteredCommand,
+    onMessage: OnInboundMessage,
+  ): void {
     const commandName = `/${cmd.name}`;
     try {
       this.app.command(commandName, async ({ command, ack }) => {
@@ -234,15 +245,22 @@ export class SlackChannel implements Channel {
           chat_jid: targetJid,
           sender: command.user_id,
           sender_name: command.user_name,
-          content: `[SLASH COMMAND: ${commandName}] ${command.text || ''}`.trim(),
+          content:
+            `[SLASH COMMAND: ${commandName}] ${command.text || ''}`.trim(),
           timestamp: Date.now().toString(),
           is_from_me: false,
           is_bot_message: false,
         });
       });
-      logger.info({ command: commandName, scope: cmd.scope, group: cmd.group_jid }, 'Registered slash command');
+      logger.info(
+        { command: commandName, scope: cmd.scope, group: cmd.group_jid },
+        'Registered slash command',
+      );
     } catch (err) {
-      logger.warn({ command: commandName, err }, 'Failed to register slash command');
+      logger.warn(
+        { command: commandName, err },
+        'Failed to register slash command',
+      );
     }
   }
 

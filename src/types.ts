@@ -110,11 +110,22 @@ export interface Channel {
   // Optional: sync group/chat names from the platform.
   syncGroups?(force: boolean): Promise<void>;
   // Optional: send a Block Kit message (Slack-specific). Returns message timestamp for updates.
-  sendBlockMessage?(jid: string, message: BlockMessage): Promise<string | undefined>;
+  sendBlockMessage?(
+    jid: string,
+    message: BlockMessage,
+  ): Promise<string | undefined>;
   // Optional: update a previously sent message by timestamp.
-  updateMessage?(jid: string, ts: string, text: string, blocks?: SlackBlock[]): Promise<void>;
+  updateMessage?(
+    jid: string,
+    ts: string,
+    text: string,
+    blocks?: SlackBlock[],
+  ): Promise<void>;
   // Optional: register a dynamic slash command.
-  registerDynamicCommand?(cmd: RegisteredCommand, onMessage: OnInboundMessage): void;
+  registerDynamicCommand?(
+    cmd: RegisteredCommand,
+    onMessage: OnInboundMessage,
+  ): void;
 }
 
 // Callback type that channels use to deliver inbound messages

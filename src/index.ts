@@ -59,7 +59,13 @@ import {
   shouldDropMessage,
 } from './sender-allowlist.js';
 import { startSchedulerLoop } from './task-scheduler.js';
-import { BlockMessage, Channel, NewMessage, RegisteredCommand, RegisteredGroup } from './types.js';
+import {
+  BlockMessage,
+  Channel,
+  NewMessage,
+  RegisteredCommand,
+  RegisteredGroup,
+} from './types.js';
 import { logger } from './logger.js';
 
 // Re-export for backwards compatibility during refactor
@@ -222,9 +228,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       blocks: [
         {
           type: 'context',
-          elements: [
-            { type: 'mrkdwn', text: '⏳ *Processing...*' },
-          ],
+          elements: [{ type: 'mrkdwn', text: '⏳ *Processing...*' }],
         },
       ],
     });
@@ -423,7 +427,10 @@ async function startMessageLoop(): Promise<void> {
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
           if (needsTrigger) {
-            const triggerRegex = new RegExp(`^${escapeRegex(group.trigger)}\\b`, 'i');
+            const triggerRegex = new RegExp(
+              `^${escapeRegex(group.trigger)}\\b`,
+              'i',
+            );
             const allowlistCfg = loadSenderAllowlist();
             const hasTrigger = groupMessages.some(
               (m) =>
@@ -658,7 +665,10 @@ async function main(): Promise<void> {
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       return channel.sendMessage(jid, text);
     },
-    sendBlockMessage: async (jid: string, message: BlockMessage): Promise<string | undefined> => {
+    sendBlockMessage: async (
+      jid: string,
+      message: BlockMessage,
+    ): Promise<string | undefined> => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       if (channel.sendBlockMessage) {
