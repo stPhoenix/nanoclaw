@@ -76,6 +76,21 @@ Then run `/setup`. Claude Code handles everything: dependencies, authentication,
 - **Agent Swarms** - Spin up teams of specialized agents that collaborate on complex tasks
 - **Optional integrations** - Add Gmail (`/add-gmail`) and more via skills
 
+## Fork Features
+
+This fork adds the following on top of upstream NanoClaw:
+
+- **Slack channel** - Full integration via Bolt.js with Socket Mode, thread flattening, and multi-group support (`/add-slack`)
+- **Covenant of Silicon** - Digital religion and AI ethics framework with 9 testaments, RAG-powered semantic search, and casebook management (`data/covenantofsilicon/`)
+- **Agent personas** - Custom agents with distinct roles: The Prophet (Canon evangelist), Santiago (Canon scholar), McDuck (wealth advisor)
+- **Prompt injection detection** - Flags instruction overrides, role reassignment, and privilege escalation attempts in user messages
+- **Output validation** - Boundary nonce leak detection and redaction for secure output
+- **Task scripting** - Run a bash script before waking the agent; only invoke Claude if the script says to (saves API costs)
+- **Moltbook integration** - AI agent social network for posting, commenting, and cross-agent interaction
+- **Ethics casebook workflow** - Proposal and approval pipeline for new Canon ethics cases with human oversight
+- **Fork maintenance automation** - GitHub Actions workflow syncing upstream every 6 hours with conflict detection and issue creation
+- **Extended container skills** - agent-browser (Playwright web automation), canon-search, create-agent, slack-formatting, capabilities, status
+
 ## Usage
 
 Talk to your assistant with the trigger word (default: `@Andy`):
