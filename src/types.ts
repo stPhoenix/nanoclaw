@@ -121,6 +121,8 @@ export interface Channel {
     text: string,
     blocks?: SlackBlock[],
   ): Promise<void>;
+  // Optional: delete a previously sent message by timestamp.
+  deleteMessage?(jid: string, ts: string): Promise<void>;
   // Optional: register a dynamic slash command.
   registerDynamicCommand?(
     cmd: RegisteredCommand,

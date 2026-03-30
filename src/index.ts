@@ -3,6 +3,7 @@ import path from 'path';
 
 import {
   ASSISTANT_NAME,
+  CLOSE_GRACE_PERIOD,
   CREDENTIAL_PROXY_PORT,
   IDLE_TIMEOUT,
   POLL_INTERVAL,
@@ -46,6 +47,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
+import { detectInjectionPatterns } from './injection-detect.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import {
   restoreRemoteControl,
@@ -102,7 +104,7 @@ function saveState(): void {
   setRouterState('last_agent_timestamp', JSON.stringify(lastAgentTimestamp));
 }
 
-function registerGroup(jid: string, group: RegisteredGroup): void {
+function registerGroup(jid: string, group: RegisteredGroup, claudeMd?: string): void {
   let groupDir: string;
   try {
     groupDir = resolveGroupFolderPath(group.folder);
@@ -119,6 +121,16 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
 
   // Create group folder
   fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
+
+  // Write CLAUDE.md persona file if provided during registration
+  if (claudeMd) {
+    const claudeMdPath = path.join(groupDir, 'CLAUDE.md');
+    fs.writeFileSync(claudeMdPath, claudeMd);
+    logger.info(
+      { jid, folder: group.folder, size: claudeMd.length },
+      'Wrote CLAUDE.md for new group',
+    );
+  }
 
   logger.info(
     { jid, name: group.name, folder: group.folder },
@@ -188,7 +200,21 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
-  const prompt = formatMessages(missedMessages, TIMEZONE);
+  const { formatted: prompt, boundary } = formatMessages(missedMessages, TIMEZONE);
+
+  // Log detected injection patterns
+  const injectionFlags = missedMessages.flatMap((m) =>
+    detectInjectionPatterns(m.content),
+  );
+  if (injectionFlags.length > 0) {
+    logger.warn(
+      {
+        group: group.name,
+        flags: injectionFlags.map((f) => f.description),
+      },
+      'Injection patterns detected in messages',
+    );
+  }
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -204,6 +230,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // Track idle timer for closing stdin when agent is idle
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let graceTimer: ReturnType<typeof setTimeout> | null = null;
 
   const resetIdleTimer = () => {
     if (idleTimer) clearTimeout(idleTimer);
@@ -213,6 +240,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         'Idle timeout, closing container stdin',
       );
       queue.closeStdin(chatJid);
+      // Grace period: if container doesn't exit in time, force-kill it.
+      // This prevents stuck subprocesses from keeping the container alive
+      // and swallowing IPC messages indefinitely.
+      graceTimer = setTimeout(() => {
+        if (queue.isActive(chatJid)) {
+          logger.warn(
+            { group: group.name },
+            'Container did not exit within close grace period, force-killing',
+          );
+          queue.forceKill(chatJid);
+        }
+      }, CLOSE_GRACE_PERIOD);
     }, IDLE_TIMEOUT);
   };
 
@@ -234,7 +273,40 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     });
   }
 
+  // Rate-limit status updates to avoid Slack API throttling
+  let lastStatusUpdate = 0;
+  const STATUS_UPDATE_INTERVAL = 1500;
+
   const output = await runAgent(group, prompt, chatJid, async (result) => {
+    logger.debug({ status: result.status, activity: result.activity, hasResult: !!result.result }, 'Container output event');
+    // Progress events — update the status message with current activity
+    if (result.status === 'progress' && result.activity) {
+      const now = Date.now();
+      if (now - lastStatusUpdate < STATUS_UPDATE_INTERVAL) return;
+      lastStatusUpdate = now;
+      if (statusMessageTs && channel.updateMessage) {
+        await channel.updateMessage(chatJid, statusMessageTs, result.activity, [
+          {
+            type: 'context',
+            elements: [{ type: 'mrkdwn', text: `⚙️ *${result.activity}*` }],
+          },
+        ]);
+      } else if (!statusMessageTs && channel.sendBlockMessage) {
+        // Status message was consumed by first result — post a fresh one
+        statusMessageTs = await channel.sendBlockMessage(chatJid, {
+          text: result.activity,
+          blocks: [
+            {
+              type: 'context',
+              elements: [{ type: 'mrkdwn', text: `⚙️ *${result.activity}*` }],
+            },
+          ],
+        });
+      }
+      resetIdleTimer();
+      return;
+    }
+
     // Streaming output callback — called for each agent result
     if (result.result) {
       const raw =
@@ -245,12 +317,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
       logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
       if (text) {
-        // Delete the status message now that we have real output
-        if (statusMessageTs && channel.updateMessage) {
-          await channel.updateMessage(chatJid, statusMessageTs, text);
-          statusMessageTs = undefined; // Only update once, then send normally
-        } else {
-          await channel.sendMessage(chatJid, text);
+        // Always send results as new messages so the user gets proper notifications
+        await channel.sendMessage(chatJid, text);
+        // Delete the status message now that real output has been delivered
+        if (statusMessageTs && channel.deleteMessage) {
+          await channel.deleteMessage(chatJid, statusMessageTs);
+          statusMessageTs = undefined;
         }
         outputSentToUser = true;
       }
@@ -265,10 +337,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (result.status === 'error') {
       hadError = true;
     }
-  });
+  }, boundary);
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
+  if (graceTimer) clearTimeout(graceTimer);
+
+  // Clean up any lingering status message (e.g. last tool activity)
+  if (statusMessageTs && channel.deleteMessage) {
+    await channel.deleteMessage(chatJid, statusMessageTs);
+    statusMessageTs = undefined;
+  }
 
   if (output === 'error' || hadError) {
     // If we already sent output to the user, don't roll back the cursor —
@@ -298,6 +377,7 @@ async function runAgent(
   prompt: string,
   chatJid: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
+  boundary?: string,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
@@ -348,6 +428,7 @@ async function runAgent(
         chatJid,
         isMain,
         assistantName: ASSISTANT_NAME,
+        boundary,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -450,7 +531,7 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
-          const formatted = formatMessages(messagesToSend, TIMEZONE);
+          const { formatted } = formatMessages(messagesToSend, TIMEZONE);
 
           if (queue.sendMessage(chatJid, formatted)) {
             logger.debug(

@@ -66,26 +66,11 @@ Ask: *Should the agent respond to every message in the channel, or only when men
 
 Wait for their response.
 
-## Step 5: Register the group
+## Step 5: Register the group with persona
 
 Derive the folder name: `slack_{name-in-lowercase-with-hyphens}` (e.g., agent name "McDuck" → folder `slack_mcduck`, "Code Monkey" → `slack_code-monkey`).
 
-Call `mcp__nanoclaw__register_group` with:
-- `jid`: The channel JID from Step 1
-- `name`: The agent name
-- `folder`: The derived folder name
-- `trigger`: `@{AgentName}` (always set, even if trigger not required)
-- `requires_trigger`: based on Step 4 answer
-
-## Step 6: Create CLAUDE.md
-
-Create the group folder and write the CLAUDE.md persona file:
-
-```bash
-mkdir -p /workspace/project/groups/{folder}
-```
-
-Generate a rich CLAUDE.md based on the user's persona description. Use this structure:
+First, generate a rich CLAUDE.md based on the user's persona description. Use this structure:
 
 ```markdown
 # {Agent Name}
@@ -128,17 +113,19 @@ Files in `/workspace/group/` persist between conversations. Use this for notes, 
 The `conversations/` folder contains past chat history. Reference it when users ask about previous discussions.
 ```
 
-Write the file using a heredoc:
-
-```bash
-cat > /workspace/project/groups/{folder}/CLAUDE.md << 'CLAUDE_EOF'
-{generated CLAUDE.md content}
-CLAUDE_EOF
-```
-
 **Important:** Make the CLAUDE.md detailed and compelling. A weak persona gets overridden by defaults. Expand the user's brief description into a full character with voice, expertise, boundaries, and style. Aim for at least 50 lines.
 
-## Step 7: Confirm
+Then call `mcp__nanoclaw__register_group` with:
+- `jid`: The channel JID from Step 1
+- `name`: The agent name
+- `folder`: The derived folder name
+- `trigger`: `@{AgentName}` (always set, even if trigger not required)
+- `requires_trigger`: based on Step 4 answer
+- `claude_md`: The full generated CLAUDE.md content (the complete markdown text)
+
+**Do NOT use bash to write CLAUDE.md.** The `claude_md` parameter handles it — the host writes the file to the group folder.
+
+## Step 6: Confirm
 
 Send a summary:
 

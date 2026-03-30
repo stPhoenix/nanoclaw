@@ -42,13 +42,15 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  boundary?: string;
 }
 
 export interface ContainerOutput {
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'progress';
   result: string | null;
   newSessionId?: string;
   error?: string;
+  activity?: string;
 }
 
 interface VolumeMount {
@@ -246,6 +248,12 @@ function buildContainerArgs(
     args.push('-e', `CLAUDE_MODEL=${claudeModel}`);
   }
 
+  // Propagate log level so container debug logging matches the host
+  const logLevel = process.env.LOG_LEVEL;
+  if (logLevel) {
+    args.push('-e', `LOG_LEVEL=${logLevel}`);
+  }
+
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
 
@@ -375,7 +383,9 @@ export async function runContainerAgent(
             resetTimeout();
             // Call onOutput for all markers (including null results)
             // so idle timers start even for "silent" query completions.
-            outputChain = outputChain.then(() => onOutput(parsed));
+            outputChain = outputChain.then(() => onOutput(parsed)).catch((err) => {
+              logger.error({ err, group: group.name }, 'Error in onOutput callback');
+            });
           } catch (err) {
             logger.warn(
               { group: group.name, error: err },

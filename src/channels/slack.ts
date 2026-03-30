@@ -218,6 +218,7 @@ export class SlackChannel implements Channel {
     blocks?: SlackBlock[],
   ): Promise<void> {
     const channelId = jid.replace(/^slack:/, '');
+    logger.debug({ jid, ts, textLen: text.length, hasBlocks: !!blocks }, 'Updating Slack message');
     try {
       await this.app.client.chat.update({
         channel: channelId,
@@ -227,6 +228,18 @@ export class SlackChannel implements Channel {
       });
     } catch (err) {
       logger.warn({ jid, ts, err }, 'Failed to update message');
+    }
+  }
+
+  async deleteMessage(jid: string, ts: string): Promise<void> {
+    const channelId = jid.replace(/^slack:/, '');
+    try {
+      await this.app.client.chat.delete({
+        channel: channelId,
+        ts,
+      });
+    } catch (err) {
+      logger.warn({ jid, ts, err }, 'Failed to delete message');
     }
   }
 

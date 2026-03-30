@@ -362,6 +362,28 @@ export class GroupQueue {
     }
   }
 
+  /**
+   * Check if the message container is active for a group.
+   */
+  isActive(groupJid: string): boolean {
+    const state = this.groups.get(groupJid);
+    return !!state?.message.active;
+  }
+
+  /**
+   * Force-kill the message container process (SIGKILL).
+   * Used when a container doesn't exit within the close grace period.
+   */
+  forceKill(groupJid: string): void {
+    const state = this.groups.get(groupJid);
+    if (!state?.message.active || !state.message.process) return;
+    logger.warn(
+      { groupJid, containerName: state.message.containerName },
+      'Force-killing unresponsive container',
+    );
+    state.message.process.kill('SIGKILL');
+  }
+
   async shutdown(_gracePeriodMs: number): Promise<void> {
     this.shuttingDown = true;
 

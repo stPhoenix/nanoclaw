@@ -374,6 +374,7 @@ Use available_groups.json to find the JID for a group. The folder name must be c
     folder: z.string().describe('Channel-prefixed folder name (e.g., "whatsapp_family-chat", "telegram_dev-team")'),
     trigger: z.string().describe('Trigger word (e.g., "@Andy")'),
     requires_trigger: z.boolean().optional().describe('If true (default), agent only responds when triggered by name. If false, responds to all messages in the channel.'),
+    claude_md: z.string().optional().describe('Content for the CLAUDE.md persona file. Written to the group folder on registration.'),
   },
   async (args) => {
     if (!isMain) {
@@ -390,6 +391,7 @@ Use available_groups.json to find the JID for a group. The folder name must be c
       folder: args.folder,
       trigger: args.trigger,
       requiresTrigger: args.requires_trigger,
+      claudeMd: args.claude_md,
       timestamp: new Date().toISOString(),
     };
 

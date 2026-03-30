@@ -23,7 +23,7 @@ export interface IpcDeps {
     message: BlockMessage,
   ) => Promise<string | undefined>;
   registeredGroups: () => Record<string, RegisteredGroup>;
-  registerGroup: (jid: string, group: RegisteredGroup) => void;
+  registerGroup: (jid: string, group: RegisteredGroup, claudeMd?: string) => void;
   registerDynamicCommand?: (cmd: RegisteredCommand) => void;
   syncGroups: (force: boolean) => Promise<void>;
   getAvailableGroups: () => AvailableGroup[];
@@ -206,6 +206,7 @@ export async function processTaskIpc(
     trigger?: string;
     requiresTrigger?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
+    claudeMd?: string;
     // For register_commands
     group_jid?: string;
     group_folder?: string;
@@ -489,7 +490,7 @@ export async function processTaskIpc(
           added_at: new Date().toISOString(),
           containerConfig: data.containerConfig,
           requiresTrigger: data.requiresTrigger,
-        });
+        }, data.claudeMd);
       } else {
         logger.warn(
           { data },
