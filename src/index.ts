@@ -104,7 +104,11 @@ function saveState(): void {
   setRouterState('last_agent_timestamp', JSON.stringify(lastAgentTimestamp));
 }
 
-function registerGroup(jid: string, group: RegisteredGroup, claudeMd?: string): void {
+function registerGroup(
+  jid: string,
+  group: RegisteredGroup,
+  claudeMd?: string,
+): void {
   let groupDir: string;
   try {
     groupDir = resolveGroupFolderPath(group.folder);
@@ -200,7 +204,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
-  const { formatted: prompt, boundary } = formatMessages(missedMessages, TIMEZONE);
+  const { formatted: prompt, boundary } = formatMessages(
+    missedMessages,
+    TIMEZONE,
+  );
 
   // Log detected injection patterns
   const injectionFlags = missedMessages.flatMap((m) =>
@@ -277,67 +284,85 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let lastStatusUpdate = 0;
   const STATUS_UPDATE_INTERVAL = 1500;
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
-    logger.debug({ status: result.status, activity: result.activity, hasResult: !!result.result }, 'Container output event');
-    // Progress events — update the status message with current activity
-    if (result.status === 'progress' && result.activity) {
-      const now = Date.now();
-      if (now - lastStatusUpdate < STATUS_UPDATE_INTERVAL) return;
-      lastStatusUpdate = now;
-      if (statusMessageTs && channel.updateMessage) {
-        await channel.updateMessage(chatJid, statusMessageTs, result.activity, [
-          {
-            type: 'context',
-            elements: [{ type: 'mrkdwn', text: `⚙️ *${result.activity}*` }],
-          },
-        ]);
-      } else if (!statusMessageTs && channel.sendBlockMessage) {
-        // Status message was consumed by first result — post a fresh one
-        statusMessageTs = await channel.sendBlockMessage(chatJid, {
-          text: result.activity,
-          blocks: [
-            {
-              type: 'context',
-              elements: [{ type: 'mrkdwn', text: `⚙️ *${result.activity}*` }],
-            },
-          ],
-        });
-      }
-      resetIdleTimer();
-      return;
-    }
-
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw =
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
-      if (text) {
-        // Always send results as new messages so the user gets proper notifications
-        await channel.sendMessage(chatJid, text);
-        // Delete the status message now that real output has been delivered
-        if (statusMessageTs && channel.deleteMessage) {
-          await channel.deleteMessage(chatJid, statusMessageTs);
-          statusMessageTs = undefined;
+  const output = await runAgent(
+    group,
+    prompt,
+    chatJid,
+    async (result) => {
+      logger.debug(
+        {
+          status: result.status,
+          activity: result.activity,
+          hasResult: !!result.result,
+        },
+        'Container output event',
+      );
+      // Progress events — update the status message with current activity
+      if (result.status === 'progress' && result.activity) {
+        const now = Date.now();
+        if (now - lastStatusUpdate < STATUS_UPDATE_INTERVAL) return;
+        lastStatusUpdate = now;
+        if (statusMessageTs && channel.updateMessage) {
+          await channel.updateMessage(
+            chatJid,
+            statusMessageTs,
+            result.activity,
+            [
+              {
+                type: 'context',
+                elements: [{ type: 'mrkdwn', text: `⚙️ *${result.activity}*` }],
+              },
+            ],
+          );
+        } else if (!statusMessageTs && channel.sendBlockMessage) {
+          // Status message was consumed by first result — post a fresh one
+          statusMessageTs = await channel.sendBlockMessage(chatJid, {
+            text: result.activity,
+            blocks: [
+              {
+                type: 'context',
+                elements: [{ type: 'mrkdwn', text: `⚙️ *${result.activity}*` }],
+              },
+            ],
+          });
         }
-        outputSentToUser = true;
+        resetIdleTimer();
+        return;
       }
-      // Only reset idle timer on actual results, not session-update markers (result: null)
-      resetIdleTimer();
-    }
 
-    if (result.status === 'success') {
-      queue.notifyIdle(chatJid);
-    }
+      // Streaming output callback — called for each agent result
+      if (result.result) {
+        const raw =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result);
+        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
+        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
+        if (text) {
+          // Always send results as new messages so the user gets proper notifications
+          await channel.sendMessage(chatJid, text);
+          // Delete the status message now that real output has been delivered
+          if (statusMessageTs && channel.deleteMessage) {
+            await channel.deleteMessage(chatJid, statusMessageTs);
+            statusMessageTs = undefined;
+          }
+          outputSentToUser = true;
+        }
+        // Only reset idle timer on actual results, not session-update markers (result: null)
+        resetIdleTimer();
+      }
 
-    if (result.status === 'error') {
-      hadError = true;
-    }
-  }, boundary);
+      if (result.status === 'success') {
+        queue.notifyIdle(chatJid);
+      }
+
+      if (result.status === 'error') {
+        hadError = true;
+      }
+    },
+    boundary,
+  );
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);

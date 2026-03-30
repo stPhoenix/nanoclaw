@@ -218,7 +218,10 @@ export class SlackChannel implements Channel {
     blocks?: SlackBlock[],
   ): Promise<void> {
     const channelId = jid.replace(/^slack:/, '');
-    logger.debug({ jid, ts, textLen: text.length, hasBlocks: !!blocks }, 'Updating Slack message');
+    logger.debug(
+      { jid, ts, textLen: text.length, hasBlocks: !!blocks },
+      'Updating Slack message',
+    );
     try {
       await this.app.client.chat.update({
         channel: channelId,

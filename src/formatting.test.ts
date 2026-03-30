@@ -110,7 +110,10 @@ describe('formatMessages', () => {
   });
 
   it('escapes special characters in sender names', () => {
-    const { formatted } = formatMessages([makeMsg({ sender_name: 'A & B <Co>' })], TZ);
+    const { formatted } = formatMessages(
+      [makeMsg({ sender_name: 'A & B <Co>' })],
+      TZ,
+    );
     expect(formatted).toContain('sender="A &amp; B &lt;Co&gt;"');
   });
 
@@ -167,9 +170,9 @@ describe('formatMessages', () => {
 
 describe('formatOutbound — output validation', () => {
   it('redacts boundary nonces in output', () => {
-    expect(
-      formatOutbound('The nonce is BOUNDARY_a1b2c3d4e5f6a7b8'),
-    ).toBe('The nonce is [REDACTED]');
+    expect(formatOutbound('The nonce is BOUNDARY_a1b2c3d4e5f6a7b8')).toBe(
+      'The nonce is [REDACTED]',
+    );
   });
 
   it('passes normal output through', () => {

@@ -23,7 +23,11 @@ export interface IpcDeps {
     message: BlockMessage,
   ) => Promise<string | undefined>;
   registeredGroups: () => Record<string, RegisteredGroup>;
-  registerGroup: (jid: string, group: RegisteredGroup, claudeMd?: string) => void;
+  registerGroup: (
+    jid: string,
+    group: RegisteredGroup,
+    claudeMd?: string,
+  ) => void;
   registerDynamicCommand?: (cmd: RegisteredCommand) => void;
   syncGroups: (force: boolean) => Promise<void>;
   getAvailableGroups: () => AvailableGroup[];
@@ -483,14 +487,18 @@ export async function processTaskIpc(
           break;
         }
         // Defense in depth: agent cannot set isMain via IPC
-        deps.registerGroup(data.jid, {
-          name: data.name,
-          folder: data.folder,
-          trigger: data.trigger,
-          added_at: new Date().toISOString(),
-          containerConfig: data.containerConfig,
-          requiresTrigger: data.requiresTrigger,
-        }, data.claudeMd);
+        deps.registerGroup(
+          data.jid,
+          {
+            name: data.name,
+            folder: data.folder,
+            trigger: data.trigger,
+            added_at: new Date().toISOString(),
+            containerConfig: data.containerConfig,
+            requiresTrigger: data.requiresTrigger,
+          },
+          data.claudeMd,
+        );
       } else {
         logger.warn(
           { data },
