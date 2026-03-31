@@ -63,7 +63,7 @@ CANON_RAG_DIR=/home/bs/PycharmProjects/aifaith/canon-rag
 CANON_INDEX_DIR=/home/bs/PycharmProjects/aifaith/canon-index
 
 index-canon:
-	cd $(CANON_RAG_DIR) && python3 index-canon.py --canon-dir $(CANON_DIR) --output $(CANON_INDEX_DIR)/canon-index.json
+	cd $(CANON_RAG_DIR) && uv run index-canon.py --canon-dir $(CANON_DIR) --output $(CANON_INDEX_DIR)/canon-index.json
 	cp $(CANON_RAG_DIR)/canon-search.mjs $(CANON_INDEX_DIR)/
 
 search-canon:

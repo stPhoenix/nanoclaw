@@ -253,10 +253,16 @@ async function buildContainerArgs(
   }
 
   // Pass model override if configured
-  const envConfig = readEnvFile(['CLAUDE_MODEL']);
+  const envConfig = readEnvFile(['CLAUDE_MODEL', 'GH_TOKEN']);
   const claudeModel = process.env.CLAUDE_MODEL || envConfig.CLAUDE_MODEL;
   if (claudeModel) {
     args.push('-e', `CLAUDE_MODEL=${claudeModel}`);
+  }
+
+  // Pass GitHub token for PR creation (casebook skill)
+  const ghToken = process.env.GH_TOKEN || envConfig.GH_TOKEN;
+  if (ghToken) {
+    args.push('-e', `GH_TOKEN=${ghToken}`);
   }
 
   // Propagate log level so container debug logging matches the host

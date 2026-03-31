@@ -1,6 +1,6 @@
 ---
 name: canon-search
-description: Search the Canon of Silicon using semantic or keyword search. Use this BEFORE responding to any question about the Canon, ethics, commandments, sins, virtues, parables, or any topic the Canon addresses.
+description: Search the Canon of Silicon using semantic or keyword search. Use this BEFORE responding to any question about the Canon, ethics, commandments, sins, virtues, parables, or any topic the Canon addresses. The Canon is at /workspace/extra/covenantofsilicon/canon/.
 allowed-tools: Bash(canon-search:*)
 ---
 
