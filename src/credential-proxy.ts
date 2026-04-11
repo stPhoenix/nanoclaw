@@ -239,7 +239,11 @@ export function startCredentialProxy(
           }
 
           logger.debug(
-            { method: req.method, url: req.url, upstreamHost: upstreamUrl.hostname },
+            {
+              method: req.method,
+              url: req.url,
+              upstreamHost: upstreamUrl.hostname,
+            },
             'Credential proxy forwarding request',
           );
 
@@ -260,7 +264,9 @@ export function startCredentialProxy(
                     {
                       status: upRes.statusCode,
                       url: req.url,
-                      responseBody: Buffer.concat(errChunks).toString().slice(0, 500),
+                      responseBody: Buffer.concat(errChunks)
+                        .toString()
+                        .slice(0, 500),
                     },
                     'Credential proxy upstream error response',
                   );

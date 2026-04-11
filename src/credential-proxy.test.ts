@@ -19,12 +19,14 @@ vi.mock('fs', async () => {
     default: {
       ...actual,
       existsSync: (p: string) => {
-        if (typeof p === 'string' && p.includes('.credentials.json')) return false;
+        if (typeof p === 'string' && p.includes('.credentials.json'))
+          return false;
         return actual.existsSync(p);
       },
     },
     existsSync: (p: string) => {
-      if (typeof p === 'string' && p.includes('.credentials.json')) return false;
+      if (typeof p === 'string' && p.includes('.credentials.json'))
+        return false;
       return actual.existsSync(p);
     },
   };
