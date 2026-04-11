@@ -11,6 +11,25 @@ vi.mock('./logger.js', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
 }));
 
+// Prevent reading real ~/.claude/.credentials.json during tests
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    default: {
+      ...actual,
+      existsSync: (p: string) => {
+        if (typeof p === 'string' && p.includes('.credentials.json')) return false;
+        return actual.existsSync(p);
+      },
+    },
+    existsSync: (p: string) => {
+      if (typeof p === 'string' && p.includes('.credentials.json')) return false;
+      return actual.existsSync(p);
+    },
+  };
+});
+
 import { startCredentialProxy } from './credential-proxy.js';
 
 function makeRequest(

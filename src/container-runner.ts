@@ -252,7 +252,14 @@ function buildContainerArgs(
   }
 
   // Pass model override if configured
-  const envConfig = readEnvFile(['CLAUDE_MODEL', 'GH_TOKEN']);
+  const envConfig = readEnvFile([
+    'CLAUDE_MODEL',
+    'GH_TOKEN',
+    'API_TIMEOUT_MS',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  ]);
   const claudeModel = process.env.CLAUDE_MODEL || envConfig.CLAUDE_MODEL;
   if (claudeModel) {
     args.push('-e', `CLAUDE_MODEL=${claudeModel}`);
@@ -262,6 +269,20 @@ function buildContainerArgs(
   const ghToken = process.env.GH_TOKEN || envConfig.GH_TOKEN;
   if (ghToken) {
     args.push('-e', `GH_TOKEN=${ghToken}`);
+  }
+
+  // Pass optional Anthropic configuration to container
+  const passthrough = [
+    'API_TIMEOUT_MS',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  ] as const;
+  for (const key of passthrough) {
+    const val = process.env[key] || envConfig[key];
+    if (val) {
+      args.push('-e', `${key}=${val}`);
+    }
   }
 
   // Propagate log level so container debug logging matches the host

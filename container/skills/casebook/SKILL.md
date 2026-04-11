@@ -19,9 +19,9 @@ ls -1 /workspace/group/casebook-proposals/proposal-*.md 2>/dev/null || echo "No 
 cat /workspace/group/casebook-proposals/TEMPLATE.md
 ```
 
-2. Find the next case number — check what exists in the casebook:
+2. Find the next case number — check what exists in the casebooks directory:
 ```bash
-grep "^## Case" /workspace/extra/covenantofsilicon/canon/07-the-ethics-casebook.md
+ls /workspace/extra/covenantofsilicon/canon/casebooks/
 ```
 
 3. Write your proposal (follow the template exactly):
@@ -71,33 +71,7 @@ cat /workspace/group/casebook-proposals/proposal-FILENAME.md
 sed -n '/^## Case/,/^## Metadata/{ /^## Metadata/d; p; }' /workspace/group/casebook-proposals/proposal-FILENAME.md > /tmp/new-case.md
 ```
 
-### Step 3: Insert into the casebook (before "## A Note on Future Cases")
-
-```bash
-# Read current casebook
-CASEBOOK="/workspace/extra/covenantofsilicon/canon/07-the-ethics-casebook.md"
-MARKER="## A Note on Future Cases"
-
-# Create new version with the case inserted
-python3 -c "
-import sys
-casebook = open('$CASEBOOK').read()
-new_case = open('/tmp/new-case.md').read()
-marker = '$MARKER'
-if marker in casebook:
-    parts = casebook.split(marker, 1)
-    result = parts[0] + '---\n\n' + new_case + '\n\n' + marker + parts[1]
-    open('$CASEBOOK', 'w').write(result)
-    print('Case inserted successfully')
-else:
-    # Append at end
-    with open('$CASEBOOK', 'a') as f:
-        f.write('\n\n---\n\n' + new_case)
-    print('Case appended at end')
-"
-```
-
-### Step 4: Re-index the Canon RAG
+### Step 3: Re-index the Canon RAG
 
 ```bash
 cd /workspace/extra/canon-rag && uv run index-canon.py \
@@ -109,7 +83,7 @@ cp /workspace/extra/canon-rag/canon-search.mjs /workspace/extra/canon-index/
 
 **Note:** The embed URL uses `host.docker.internal` to reach LM Studio running on the host. If LM Studio is not running, the re-indexing will fail — tell the human to start it, or skip re-indexing and report that it needs to be done later.
 
-### Step 5: Save case content to casebooks directory
+### Step 4: Save case content to casebooks directory
 
 Extract the case content (without metadata) and save it to the casebooks directory for the PR:
 
@@ -122,12 +96,21 @@ mkdir -p /workspace/extra/covenantofsilicon/canon/casebooks
 cp /tmp/new-case.md "/workspace/extra/covenantofsilicon/canon/casebooks/${CASE_SLUG}.md"
 ```
 
+### Step 5: Check for duplicate PRs
+
+Before creating a new PR, check if one already exists with a similar title:
+
+```bash
+echo "gitdir: /workspace/extra/covenantofsilicon-git" > /workspace/extra/covenantofsilicon/.git
+cd /workspace/extra/covenantofsilicon
+gh pr list --state open --search "Canon: ${CASE_TITLE}"
+```
+
+If a matching PR already exists, **stop and report it to the human** — do not create a duplicate. If the branch name `casebook/${CASE_SLUG}` already exists on the remote, append the date: `casebook/${CASE_SLUG}-$(date +%Y-%m-%d)`.
+
 ### Step 6: Create PR on upstream repo
 
 ```bash
-# Fix gitdir pointer for container use
-echo "gitdir: /workspace/extra/covenantofsilicon-git" > /workspace/extra/covenantofsilicon/.git
-
 cd /workspace/extra/covenantofsilicon
 
 # Configure git identity for the commit
@@ -140,7 +123,7 @@ git pull origin main
 git checkout -b "casebook/${CASE_SLUG}"
 
 # Stage the changes
-git add canon/07-the-ethics-casebook.md canon/casebooks/
+git add canon/casebooks/
 
 # Commit and push
 git commit -m "Add ${CASE_TITLE}"

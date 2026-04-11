@@ -1,4 +1,4 @@
-.PHONY: logs logs-error logs-follow status restart stop start build rebuild ps kill-containers clean-containers
+2.PHONY: logs logs-error logs-follow status restart stop start build rebuild ps kill-containers clean-containers
 
 # === Logs ===
 
