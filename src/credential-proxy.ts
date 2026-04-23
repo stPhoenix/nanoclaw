@@ -211,14 +211,17 @@ export function startCredentialProxy(
   const upstreamUrl = new URL(
     isOpenAICompat
       ? secrets.OPENAI_COMPAT_BASE_URL!
-      : (secrets.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'),
+      : secrets.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
   );
   const isHttps = upstreamUrl.protocol === 'https:';
   const makeRequest = isHttps ? httpsRequest : httpRequest;
 
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
-      logger.info({ method: req.method, url: req.url }, 'proxy incoming request');
+      logger.info(
+        { method: req.method, url: req.url },
+        'proxy incoming request',
+      );
       const chunks: Buffer[] = [];
       req.on('data', (c) => chunks.push(c));
       req.on('end', () => {
@@ -230,7 +233,10 @@ export function startCredentialProxy(
           try {
             const parsed = JSON.parse(reqBody.toString());
             isStreaming = !!parsed.stream;
-            openaiBody = anthropicToOpenAI(reqBody, secrets.OPENAI_COMPAT_MODEL);
+            openaiBody = anthropicToOpenAI(
+              reqBody,
+              secrets.OPENAI_COMPAT_MODEL,
+            );
           } catch (err) {
             logger.error({ err }, 'openai-compat: failed to parse request');
             res.writeHead(400);
@@ -246,7 +252,8 @@ export function startCredentialProxy(
             accept: 'application/json',
           };
           if (secrets.OPENAI_COMPAT_API_KEY) {
-            headers['authorization'] = `Bearer ${secrets.OPENAI_COMPAT_API_KEY}`;
+            headers['authorization'] =
+              `Bearer ${secrets.OPENAI_COMPAT_API_KEY}`;
           }
 
           logger.debug(
@@ -259,7 +266,9 @@ export function startCredentialProxy(
             {
               hostname: upstreamUrl.hostname,
               port: upstreamUrl.port || (isHttps ? 443 : 80),
-              path: upstreamUrl.pathname.replace(/\/+$/, '') + '/v1/chat/completions',
+              path:
+                upstreamUrl.pathname.replace(/\/+$/, '') +
+                '/v1/chat/completions',
               method: 'POST',
               headers,
             } as RequestOptions,
@@ -271,11 +280,15 @@ export function startCredentialProxy(
                   logger.warn(
                     {
                       status: upRes.statusCode,
-                      responseBody: Buffer.concat(errChunks).toString().slice(0, 500),
+                      responseBody: Buffer.concat(errChunks)
+                        .toString()
+                        .slice(0, 500),
                     },
                     'openai-compat: upstream error',
                   );
-                  res.writeHead(upRes.statusCode!, { 'content-type': 'application/json' });
+                  res.writeHead(upRes.statusCode!, {
+                    'content-type': 'application/json',
+                  });
                   res.end(Buffer.concat(errChunks));
                 });
                 return;
@@ -287,7 +300,10 @@ export function startCredentialProxy(
                   'cache-control': 'no-cache',
                   connection: 'keep-alive',
                 });
-                const adapter = new OpenAIStreamAdapter(msgId, secrets.OPENAI_COMPAT_MODEL || 'unknown');
+                const adapter = new OpenAIStreamAdapter(
+                  msgId,
+                  secrets.OPENAI_COMPAT_MODEL || 'unknown',
+                );
                 upRes.on('data', (chunk: Buffer) => {
                   const out = adapter.feed(chunk.toString());
                   if (out) res.write(out);
@@ -302,7 +318,10 @@ export function startCredentialProxy(
                 upRes.on('data', (c: Buffer) => respChunks.push(c));
                 upRes.on('end', () => {
                   try {
-                    const translated = openAIToAnthropic(Buffer.concat(respChunks), msgId);
+                    const translated = openAIToAnthropic(
+                      Buffer.concat(respChunks),
+                      msgId,
+                    );
                     const outBuf = Buffer.from(JSON.stringify(translated));
                     res.writeHead(200, {
                       'content-type': 'application/json',
@@ -310,7 +329,10 @@ export function startCredentialProxy(
                     });
                     res.end(outBuf);
                   } catch (err) {
-                    logger.error({ err }, 'openai-compat: failed to translate response');
+                    logger.error(
+                      { err },
+                      'openai-compat: failed to translate response',
+                    );
                     res.writeHead(502);
                     res.end('Bad Gateway');
                   }
@@ -333,7 +355,11 @@ export function startCredentialProxy(
 
         const forwardRequest = (oauthToken?: string) => {
           // OpenAI-compat mode: translate /v1/messages ↔ /v1/chat/completions
-          if (isOpenAICompat && req.method === 'POST' && (req.url === '/v1/messages' || req.url?.startsWith('/v1/messages?'))) {
+          if (
+            isOpenAICompat &&
+            req.method === 'POST' &&
+            (req.url === '/v1/messages' || req.url?.startsWith('/v1/messages?'))
+          ) {
             forwardOpenAICompat(body, false);
             return;
           }
@@ -444,7 +470,13 @@ export function startCredentialProxy(
 
     server.listen(port, host, () => {
       logger.info(
-        { port, host, authMode, openaiCompat: isOpenAICompat, upstream: upstreamUrl.href },
+        {
+          port,
+          host,
+          authMode,
+          openaiCompat: isOpenAICompat,
+          upstream: upstreamUrl.href,
+        },
         'Credential proxy started',
       );
       resolve(server);
