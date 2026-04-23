@@ -24,8 +24,13 @@ import { request as httpRequest, RequestOptions } from 'http';
 
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
+import {
+  anthropicToOpenAI,
+  openAIToAnthropic,
+  OpenAIStreamAdapter,
+} from './openai-compat.js';
 
-export type AuthMode = 'api-key' | 'oauth';
+export type AuthMode = 'api-key' | 'oauth' | 'bearer-key';
 
 export interface ProxyConfig {
   authMode: AuthMode;
@@ -187,26 +192,152 @@ export function startCredentialProxy(
     'CLAUDE_CODE_OAUTH_TOKEN',
     'ANTHROPIC_AUTH_TOKEN',
     'ANTHROPIC_BASE_URL',
+    'OLLAMA_CLOUD_API_KEY',
+    'OPENAI_COMPAT_BASE_URL',
+    'OPENAI_COMPAT_API_KEY',
+    'OPENAI_COMPAT_MODEL',
   ]);
 
-  const authMode: AuthMode = secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
+  const authMode: AuthMode = secrets.ANTHROPIC_API_KEY
+    ? 'api-key'
+    : secrets.OLLAMA_CLOUD_API_KEY
+      ? 'bearer-key'
+      : 'oauth';
   const envOauthFallback =
     secrets.CLAUDE_CODE_OAUTH_TOKEN || secrets.ANTHROPIC_AUTH_TOKEN;
 
+  const isOpenAICompat = !!secrets.OPENAI_COMPAT_BASE_URL;
+
   const upstreamUrl = new URL(
-    secrets.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
+    isOpenAICompat
+      ? secrets.OPENAI_COMPAT_BASE_URL!
+      : (secrets.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'),
   );
   const isHttps = upstreamUrl.protocol === 'https:';
   const makeRequest = isHttps ? httpsRequest : httpRequest;
 
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
+      logger.info({ method: req.method, url: req.url }, 'proxy incoming request');
       const chunks: Buffer[] = [];
       req.on('data', (c) => chunks.push(c));
       req.on('end', () => {
         const body = Buffer.concat(chunks);
 
+        const forwardOpenAICompat = (reqBody: Buffer, _hintStream: boolean) => {
+          let openaiBody: object;
+          let isStreaming = false;
+          try {
+            const parsed = JSON.parse(reqBody.toString());
+            isStreaming = !!parsed.stream;
+            openaiBody = anthropicToOpenAI(reqBody, secrets.OPENAI_COMPAT_MODEL);
+          } catch (err) {
+            logger.error({ err }, 'openai-compat: failed to parse request');
+            res.writeHead(400);
+            res.end('Bad Request');
+            return;
+          }
+
+          const openaiBodyBuf = Buffer.from(JSON.stringify(openaiBody));
+          const headers: Record<string, string | number> = {
+            host: upstreamUrl.host,
+            'content-type': 'application/json',
+            'content-length': openaiBodyBuf.length,
+            accept: 'application/json',
+          };
+          if (secrets.OPENAI_COMPAT_API_KEY) {
+            headers['authorization'] = `Bearer ${secrets.OPENAI_COMPAT_API_KEY}`;
+          }
+
+          logger.debug(
+            { upstreamHost: upstreamUrl.hostname, stream: isStreaming },
+            'openai-compat: forwarding translated request',
+          );
+
+          const msgId = `msg_${Date.now()}`;
+          const upstream = makeRequest(
+            {
+              hostname: upstreamUrl.hostname,
+              port: upstreamUrl.port || (isHttps ? 443 : 80),
+              path: upstreamUrl.pathname.replace(/\/+$/, '') + '/v1/chat/completions',
+              method: 'POST',
+              headers,
+            } as RequestOptions,
+            (upRes) => {
+              if (upRes.statusCode && upRes.statusCode >= 400) {
+                const errChunks: Buffer[] = [];
+                upRes.on('data', (c) => errChunks.push(c));
+                upRes.on('end', () => {
+                  logger.warn(
+                    {
+                      status: upRes.statusCode,
+                      responseBody: Buffer.concat(errChunks).toString().slice(0, 500),
+                    },
+                    'openai-compat: upstream error',
+                  );
+                  res.writeHead(upRes.statusCode!, { 'content-type': 'application/json' });
+                  res.end(Buffer.concat(errChunks));
+                });
+                return;
+              }
+
+              if (isStreaming) {
+                res.writeHead(200, {
+                  'content-type': 'text/event-stream',
+                  'cache-control': 'no-cache',
+                  connection: 'keep-alive',
+                });
+                const adapter = new OpenAIStreamAdapter(msgId, secrets.OPENAI_COMPAT_MODEL || 'unknown');
+                upRes.on('data', (chunk: Buffer) => {
+                  const out = adapter.feed(chunk.toString());
+                  if (out) res.write(out);
+                });
+                upRes.on('end', () => {
+                  const out = adapter.flush();
+                  if (out) res.write(out);
+                  res.end();
+                });
+              } else {
+                const respChunks: Buffer[] = [];
+                upRes.on('data', (c: Buffer) => respChunks.push(c));
+                upRes.on('end', () => {
+                  try {
+                    const translated = openAIToAnthropic(Buffer.concat(respChunks), msgId);
+                    const outBuf = Buffer.from(JSON.stringify(translated));
+                    res.writeHead(200, {
+                      'content-type': 'application/json',
+                      'content-length': outBuf.length,
+                    });
+                    res.end(outBuf);
+                  } catch (err) {
+                    logger.error({ err }, 'openai-compat: failed to translate response');
+                    res.writeHead(502);
+                    res.end('Bad Gateway');
+                  }
+                });
+              }
+            },
+          );
+
+          upstream.on('error', (err) => {
+            logger.error({ err }, 'openai-compat: upstream error');
+            if (!res.headersSent) {
+              res.writeHead(502);
+              res.end('Bad Gateway');
+            }
+          });
+
+          upstream.write(openaiBodyBuf);
+          upstream.end();
+        };
+
         const forwardRequest = (oauthToken?: string) => {
+          // OpenAI-compat mode: translate /v1/messages ↔ /v1/chat/completions
+          if (isOpenAICompat && req.method === 'POST' && (req.url === '/v1/messages' || req.url?.startsWith('/v1/messages?'))) {
+            forwardOpenAICompat(body, false);
+            return;
+          }
+
           const headers: Record<
             string,
             string | number | string[] | undefined
@@ -225,6 +356,10 @@ export function startCredentialProxy(
             // API key mode: inject x-api-key on every request
             delete headers['x-api-key'];
             headers['x-api-key'] = secrets.ANTHROPIC_API_KEY;
+          } else if (authMode === 'bearer-key') {
+            // Ollama Cloud: convert x-api-key placeholder to Bearer token
+            delete headers['x-api-key'];
+            headers['authorization'] = `Bearer ${secrets.OLLAMA_CLOUD_API_KEY}`;
           } else {
             // OAuth mode: replace placeholder Bearer token with the real one
             // only when the container actually sends an Authorization header
@@ -308,7 +443,10 @@ export function startCredentialProxy(
     });
 
     server.listen(port, host, () => {
-      logger.info({ port, host, authMode }, 'Credential proxy started');
+      logger.info(
+        { port, host, authMode, openaiCompat: isOpenAICompat, upstream: upstreamUrl.href },
+        'Credential proxy started',
+      );
       resolve(server);
     });
 
@@ -318,6 +456,15 @@ export function startCredentialProxy(
 
 /** Detect which auth mode the host is configured for. */
 export function detectAuthMode(): AuthMode {
-  const secrets = readEnvFile(['ANTHROPIC_API_KEY']);
-  return secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
+  const secrets = readEnvFile([
+    'ANTHROPIC_API_KEY',
+    'OLLAMA_CLOUD_API_KEY',
+    'OPENAI_COMPAT_BASE_URL',
+  ]);
+  // openai-compat mode: containers need x-api-key placeholder so SDK sends api-key style requests
+  return secrets.ANTHROPIC_API_KEY || secrets.OPENAI_COMPAT_BASE_URL
+    ? 'api-key'
+    : secrets.OLLAMA_CLOUD_API_KEY
+      ? 'bearer-key'
+      : 'oauth';
 }

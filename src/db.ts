@@ -148,6 +148,19 @@ function createSchema(database: Database.Database): void {
     /* columns already exist */
   }
 
+  // Add reply_to columns if they don't exist (migration for existing DBs)
+  try {
+    database.exec(`ALTER TABLE messages ADD COLUMN reply_to_message_id TEXT`);
+    database.exec(
+      `ALTER TABLE messages ADD COLUMN reply_to_message_content TEXT`,
+    );
+    database.exec(
+      `ALTER TABLE messages ADD COLUMN reply_to_sender_name TEXT`,
+    );
+  } catch {
+    /* columns already exist */
+  }
+
   // Add registered_commands table (migration for existing DBs)
   try {
     database.exec(`

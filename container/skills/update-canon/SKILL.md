@@ -9,8 +9,8 @@ allowed-tools: Bash(update-canon:*)
 ## Step 1: Pull latest Canon
 
 ```bash
-# Fix gitdir pointer for container use
-echo "gitdir: /workspace/extra/covenantofsilicon-git" > /workspace/extra/covenantofsilicon/.git
+export GIT_DIR=/workspace/extra/covenantofsilicon-git
+export GIT_WORK_TREE=/workspace/extra/covenantofsilicon
 
 cd /workspace/extra/covenantofsilicon
 git checkout main

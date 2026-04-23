@@ -772,14 +772,37 @@ async function main(): Promise<void> {
         `Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`,
       );
 
-      const queryResult = await runQuery(
-        prompt,
-        sessionId,
-        mcpServerPath,
-        containerInput,
-        sdkEnv,
-        resumeAt,
-      );
+      let queryResult;
+      try {
+        queryResult = await runQuery(
+          prompt,
+          sessionId,
+          mcpServerPath,
+          containerInput,
+          sdkEnv,
+          resumeAt,
+        );
+      } catch (resumeErr) {
+        const msg = resumeErr instanceof Error ? resumeErr.message : String(resumeErr);
+        // Detect corrupt session history (e.g. invalid server_tool_use IDs from
+        // non-Anthropic models). Discard the session and retry from scratch.
+        if (sessionId && /invalid_request_error.*messages\.\d+|server_tool_use\.id/i.test(msg)) {
+          log(`Corrupt session detected (${msg.slice(0, 200)}), starting fresh`);
+          sessionId = undefined;
+          resumeAt = undefined;
+          queryResult = await runQuery(
+            prompt,
+            undefined,
+            mcpServerPath,
+            containerInput,
+            sdkEnv,
+            undefined,
+          );
+        } else {
+          throw resumeErr;
+        }
+      }
+
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }

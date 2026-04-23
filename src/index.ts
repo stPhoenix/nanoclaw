@@ -517,7 +517,7 @@ async function runAgent(
       const isStaleSession =
         sessionId &&
         output.error &&
-        /no conversation found|ENOENT.*\.jsonl|session.*not found/i.test(
+        /no conversation found|ENOENT.*\.jsonl|session.*not found|invalid_request_error.*messages\.\d+/i.test(
           output.error,
         );
 

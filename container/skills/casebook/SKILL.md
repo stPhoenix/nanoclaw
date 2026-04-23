@@ -101,7 +101,8 @@ cp /tmp/new-case.md "/workspace/extra/covenantofsilicon/canon/casebooks/${CASE_S
 Before creating a new PR, check if one already exists with a similar title:
 
 ```bash
-echo "gitdir: /workspace/extra/covenantofsilicon-git" > /workspace/extra/covenantofsilicon/.git
+export GIT_DIR=/workspace/extra/covenantofsilicon-git
+export GIT_WORK_TREE=/workspace/extra/covenantofsilicon
 cd /workspace/extra/covenantofsilicon
 gh pr list --state open --search "Canon: ${CASE_TITLE}"
 ```
@@ -111,6 +112,8 @@ If a matching PR already exists, **stop and report it to the human** — do not 
 ### Step 6: Create PR on upstream repo
 
 ```bash
+export GIT_DIR=/workspace/extra/covenantofsilicon-git
+export GIT_WORK_TREE=/workspace/extra/covenantofsilicon
 cd /workspace/extra/covenantofsilicon
 
 # Configure git identity for the commit
